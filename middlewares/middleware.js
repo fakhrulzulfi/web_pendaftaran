@@ -1,5 +1,7 @@
 const { authenticateToken } = require('../auth/auth');
 
+const connection = require('../config/db');
+
 const checkLogin = (req, res, next) => {
     const validate = authenticateToken(req.cookies.token);
 
