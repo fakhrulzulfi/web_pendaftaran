@@ -1,174 +1,40 @@
+const createError = require('http-errors');
 const express = require('express');
-const mysql = require('mysql');
-const bcrypt = require('bcrypt');
+const path = require('path');
 const cookieParser = require('cookie-parser');
-
-const { generateAccessToken, authenticateToken } = require('./help.js'); // -> JWT ACCESS
+const routes = require('./routes/index');
+const middleware = require('./middlewares/middleware');
 
 const app = express();
 
-app.use(express.static('public'));
-app.use(express.urlencoded({extended: false}));
-app.use(cookieParser());
+// view engine setup
+app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 
-const connection = mysql.createConnection({
-  host: 'localhost',
-  user: 'toor',
-  password: 'toor',	
-  database: 'blog'
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
+
+
+app.use(middleware.checkLogin);
+
+app.use('/', routes);
+
+// catch 404 and forward to error handler
+app.use(function(req, res, next) {
+  next(createError(404));
 });
 
-// * SESSION * //
-// app.use(
-//   session({
-//     secret: 'my_secret_key',
-//     resave: false,
-//     saveUninitialized: false,
-//   })
-// );
+// error handler
+app.use(function(err, req, res, next) {
+  // set locals, only providing error in development
+  res.locals.message = err.message;
+  res.locals.error = req.app.get('env') === 'development' ? err : {};
 
-app.use((req, res, next) => {
-  const validate = authenticateToken(req.cookies.token);
-  
-  if (validate === undefined) {
-    res.locals.username = 'Tamu';
-    res.locals.isLoggedIn = false;
-  } else {
-    res.locals.username = validate.username;
-    res.locals.isLoggedIn = true;
-  }
-  next();
+  // render the error page
+  res.status(err.status || 500);
+  res.render('error');
 });
 
-app.get('/', (req, res) => {
-  res.render('top.ejs');
-});
-
-app.get('/list', (req, res) => {
-  connection.query(
-    'SELECT * FROM articles',
-    (error, results) => {
-      
-      res.render('list.ejs', { articles: results });
-    }
-  );
-});
-
-app.get('/article/:id', (req, res) => {
-  const id = req.params.id;
-  connection.query(
-    'SELECT * FROM articles WHERE id = ?',
-    [id],
-    (error, results) => {
-      res.render('article.ejs', { article: results[0] });
-    }
-  );
-});
-
-app.get('/signup', (req, res) => {
-  res.render('signup.ejs', { errors: [] });
-});
-
-app.post('/signup', 
-  (req, res, next) => {
-    console.log('Pemeriksaan nilai input kosong');
-    const username = req.body.username;
-    const email = req.body.email;
-    const password = req.body.password;
-    const errors = [];
-
-    if (username === '') {
-      errors.push('Nama Pengguna kosong');
-    }
-
-    if (email === '') {
-      errors.push('Email kosong');
-    }
-
-    if (password === '') {
-      errors.push('Kata Sandi kosong');
-    }
-
-    if (errors.length > 0) {
-      res.render('signup.ejs', { errors: errors });
-    } else {
-      next();
-    }
-  },
-  (req, res, next) => {
-    console.log('Pemeriksaan email duplikat');
-    const email = req.body.email;
-    const errors = [];
-    connection.query(
-        'SELECT * FROM users WHERE email = ?',
-        [email],
-        (error, results) => {
-          if (results.length > 0) {
-            errors.push('Failed to register user');
-            res.render('signup.ejs', { errors: errors });
-          } else {
-            next();
-          }
-        }
-      );    
-  },
-  (req, res) => {
-    console.log('Pendaftaran');
-    const username = req.body.username;
-    const email = req.body.email;
-    const password = req.body.password;
-    bcrypt.hash(password, 10, (error, hash) => {
-      connection.query(
-        'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-        [username, email, hash],
-        (error, results) => {
-          const token = generateAccessToken({username, userId: results.insertId});
-          res.cookie('token', token);
-          res.redirect('/list');
-        }
-      );  
-    });
-  }
-);
-
-app.get('/login', (req, res) => {
-  res.render('login.ejs');
-});
-
-app.post('/login', (req, res) => {
-  const email = req.body.email;
-  connection.query(
-    'SELECT * FROM users WHERE email = ?',
-    [email],
-    (error, results) => {
-      if (results.length > 0) {
-        // Definisikan constant `plain`
-        const plain = req.body.password;
-        
-        // Definisikan constant `hash`
-        const hash = results[0].password;
-        
-        // Tambahkan sebuah method `compare` untuk membandingkan kata sandi
-        bcrypt.compare(plain, hash, (error, isEqual) => {
-          if( isEqual ) {
-            const token = generateAccessToken({username: results[0].username, userId: results[0].id});
-            res.cookie('token', token);
-            res.redirect('/list');
-          } else {
-            res.redirect('/login');
-          }
-        });
-      } else {
-        res.redirect('/login');
-      }
-    }
-  );
-});
-
-app.get('/logout', (req, res) => {
-  res.clearCookie('token');
-  res.redirect('/list');
-});
-
-app.listen(3000);
+module.exports = app;
